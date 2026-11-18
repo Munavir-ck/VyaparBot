@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/admin/layout,_N_T_/(dashboard)/admin/pilot/layout,_N_T_/(dashboard)/admin/pilot/page,_N_T_/admin/pilot"
+  },
+  "routeCache": {
+    "key": "/route-cache/APP_PAGE/3dc272c676a104f6b7732504ce1635c01a0c377d81bcbdc7f5547e4d3ba730c7/$/admin/pilot",
+    "owner": {
+      "kind": "APP_PAGE",
+      "sourceRoute": "/(dashboard)/admin/pilot/page"
+    },
+    "isFallback": false
+  }
+}

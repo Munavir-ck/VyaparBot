@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/receivables/layout,_N_T_/(dashboard)/receivables/page,_N_T_/receivables"
+  },
+  "routeCache": {
+    "key": "/route-cache/APP_PAGE/bcb72fb6c05cae6120d1fed0b7b4a47ccee5ad1479b41662c34810df5474401f/$/receivables",
+    "owner": {
+      "kind": "APP_PAGE",
+      "sourceRoute": "/(dashboard)/receivables/page"
+    },
+    "isFallback": false
+  }
+}

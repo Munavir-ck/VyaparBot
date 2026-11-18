@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/payables/layout,_N_T_/(dashboard)/payables/page,_N_T_/payables"
+  },
+  "routeCache": {
+    "key": "/route-cache/APP_PAGE/b64fef0360b5bff68f8fdcb3c649d38c319773e074749f946a7299fd508b1d6c/$/payables",
+    "owner": {
+      "kind": "APP_PAGE",
+      "sourceRoute": "/(dashboard)/payables/page"
+    },
+    "isFallback": false
+  }
+}

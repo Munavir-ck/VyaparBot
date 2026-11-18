@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/transactions/layout,_N_T_/(dashboard)/transactions/page,_N_T_/transactions"
+  },
+  "routeCache": {
+    "key": "/route-cache/APP_PAGE/d1c26aa4649b5e46980eda3582e31bfcfd1448778ce101090cc6b2524c73a22a/$/transactions",
+    "owner": {
+      "kind": "APP_PAGE",
+      "sourceRoute": "/(dashboard)/transactions/page"
+    },
+    "isFallback": false
+  }
+}

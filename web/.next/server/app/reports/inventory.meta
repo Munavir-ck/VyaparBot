@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/reports/layout,_N_T_/(dashboard)/reports/inventory/layout,_N_T_/(dashboard)/reports/inventory/page,_N_T_/reports/inventory"
+  },
+  "routeCache": {
+    "key": "/route-cache/APP_PAGE/3bdf1bdb7e09373711d1aa7a0a2addce8f39131b675551acc8bec418eb128f8f/$/reports/inventory",
+    "owner": {
+      "kind": "APP_PAGE",
+      "sourceRoute": "/(dashboard)/reports/inventory/page"
+    },
+    "isFallback": false
+  }
+}

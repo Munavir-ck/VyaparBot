@@ -1,0 +1,47 @@
+{
+  "name": "whatsapp-restaurant-money-management",
+  "version": "1.0.0",
+  "description": "WhatsApp-first Conversational Financial Assistant for Small Restaurants",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "vitest run --fileParallelism=false",
+    "reset": "node scripts/reset-session.js",
+    "simulate": "node scripts/simulate-whatsapp.js"
+  },
+  "keywords": [
+    "restaurant",
+    "money-management",
+    "accounting",
+    "whatsapp",
+    "kerala",
+    "express",
+    "mongodb",
+    "openai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1131.0",
+    "@aws-sdk/s3-request-presigner": "^3.1131.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "mongoose": "^8.9.5",
+    "openai": "^7.15.0",
+    "pino": "^9.6.0",
+    "pino-http": "^10.4.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0",
+    "pino-pretty": "^13.0.0",
+    "supertest": "^7.0.0",
+    "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
