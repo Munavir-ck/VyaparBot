@@ -165,6 +165,63 @@ class InventoryService {
   }
 
   /**
+   * Find a unique closest matching active product in the same business (handles minor typos like samoosa -> samosa)
+   */
+  async _findClosestProduct(businessId, normalizedQuery, session = null) {
+    const candidates = await Product.find(
+      { businessId, status: 'ACTIVE' },
+      { name: 1, normalizedName: 1, unit: 1, currentStock: 1, costPrice: 1, sellingPrice: 1, minStockLevel: 1, trackInventory: 1 },
+      sessionOpts(session),
+    );
+    if (!candidates.length) return null;
+
+    const levenshtein = (a, b) => {
+      const dp = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+      for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          dp[i][j] =
+            a[i - 1] === b[j - 1]
+              ? dp[i - 1][j - 1]
+              : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+
+    const maxDist = normalizedQuery.length <= 4 ? 1 : 2;
+    let best = null;
+    let bestDist = Infinity;
+    let tie = false;
+
+    for (const c of candidates) {
+      const target = c.normalizedName || '';
+      if (target.includes(normalizedQuery) || normalizedQuery.includes(target)) {
+        if (bestDist > 0) {
+          best = c;
+          bestDist = 0;
+          tie = false;
+        } else if (bestDist === 0) {
+          tie = true;
+        }
+        continue;
+      }
+      const d = levenshtein(normalizedQuery, target);
+      if (d <= maxDist) {
+        if (d < bestDist) {
+          best = c;
+          bestDist = d;
+          tie = false;
+        } else if (d === bestDist) {
+          tie = true;
+        }
+      }
+    }
+
+    return !tie ? best : null;
+  }
+
+  /**
    * Record a stock movement (STOCK_IN, STOCK_OUT, PURCHASE, SALE_DEDUCTION, WASTAGE, DAMAGED, ADJUSTMENT)
    */
   async recordStockMovement({
@@ -203,6 +260,9 @@ class InventoryService {
       } else if (productName) {
         const normalizedName = productName.trim().toLowerCase();
         product = await Product.findOne({ businessId, normalizedName }, null, sessionOpts(session));
+        if (!product && !INBOUND_TYPES.has(type)) {
+          product = await this._findClosestProduct(businessId, normalizedName, session);
+        }
         if (!product && INBOUND_TYPES.has(type)) {
           const [created] = await Product.create(
             [

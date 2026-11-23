@@ -5,6 +5,12 @@ import { User } from '../users/user.model.js';
 import { Subscription } from '../subscriptions/subscription.model.js';
 import { getBusinessTypeConfig, BUSINESS_TYPE_CONFIGS } from './business-types.config.js';
 import {
+  getRecommendedModulesForType,
+  resolveBusinessModules,
+  validateAndNormalizeModulesInput,
+} from './business-modules.config.js';
+import { businessService } from './business.service.js';
+import {
   resolveUserOnly,
   resolveBusinessContext,
   requirePermission,
@@ -14,9 +20,13 @@ import { subscriptionService } from '../subscriptions/subscription.service.js';
 
 const router = express.Router();
 
-// GET /api/business/types - List supported business type configurations
+// GET /api/business/types - List supported business type configurations with recommended modules
 router.get('/types', (_req, res) => {
-  res.json({ status: 'success', data: Object.values(BUSINESS_TYPE_CONFIGS) });
+  const data = Object.values(BUSINESS_TYPE_CONFIGS).map((cfg) => ({
+    ...cfg,
+    recommendedModules: getRecommendedModulesForType(cfg.type),
+  }));
+  res.json({ status: 'success', data });
 });
 
 // POST /api/business/onboard - Create a business for an authenticated user who doesn't have one
@@ -41,6 +51,7 @@ router.post('/onboard', resolveUserOnly, async (req, res, next) => {
       timezone = 'Asia/Kolkata',
       address = '',
       inventorySettings = {},
+      modules: requestedModules,
     } = req.body;
 
     if (!name || !String(name).trim()) {
@@ -48,6 +59,10 @@ router.post('/onboard', resolveUserOnly, async (req, res, next) => {
     }
 
     const config = getBusinessTypeConfig(businessType);
+    const recommended = getRecommendedModulesForType(config.type);
+    const initialModules = requestedModules
+      ? validateAndNormalizeModulesInput(requestedModules, recommended)
+      : recommended;
 
     const business = await Business.create({
       name: String(name).trim(),
@@ -58,9 +73,10 @@ router.post('/onboard', resolveUserOnly, async (req, res, next) => {
       timezone: timezone || 'Asia/Kolkata',
       address: String(address || '').trim(),
       settings: {
+        modules: initialModules,
         enabledModules: {
           moneyManagement: true,
-          inventoryManagement: true,
+          inventoryManagement: Boolean(initialModules.inventory?.enabled),
         },
         inventory: {
           ...config.inventoryDefaults,
@@ -89,11 +105,15 @@ router.post('/onboard', resolveUserOnly, async (req, res, next) => {
       data: {
         business,
         businessConfig: config,
+        modules: resolveBusinessModules(business),
         memberRole: member.role,
         permissions: member.permissions,
       },
     });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ status: 'fail', code: err.code, message: err.message });
+    }
     next(err);
   }
 });
@@ -108,6 +128,7 @@ router.get('/', (req, res) => {
     data: {
       business: req.business,
       businessConfig: req.businessConfig,
+      modules: resolveBusinessModules(req.business),
       memberRole: req.memberRole,
       permissions: req.permissions,
     },
@@ -163,20 +184,67 @@ router.patch('/', async (req, res, next) => {
       );
     }
 
-    const business = await Business.findByIdAndUpdate(
-      req.business._id,
-      { $set: updates },
-      { new: true },
-    );
+    if (settings?.modules !== undefined) {
+      await businessService.updateBusinessModules({
+        businessId: req.business._id,
+        userId: req.user._id,
+        modulesInput: settings.modules,
+        reason: req.body.reason || 'Business settings update',
+      });
+    }
+
+    const business =
+      Object.keys(updates).length > 0
+        ? await Business.findByIdAndUpdate(req.business._id, { $set: updates }, { new: true })
+        : await Business.findById(req.business._id);
 
     res.json({
       status: 'success',
       data: {
         business,
         businessConfig: getBusinessTypeConfig(business.businessType),
+        modules: resolveBusinessModules(business),
       },
     });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ status: 'fail', code: err.code, message: err.message });
+    }
+    next(err);
+  }
+});
+
+// PATCH /api/business/modules - Update enabled optional modules with audit trail
+router.patch('/modules', async (req, res, next) => {
+  try {
+    if (!['OWNER', 'MANAGER'].includes(req.memberRole)) {
+      return res.status(403).json({
+        status: 'fail',
+        code: 'FORBIDDEN',
+        message: 'Only Owners or Managers can update business modules.',
+      });
+    }
+
+    const modulesInput = req.body?.modules ?? req.body;
+    const result = await businessService.updateBusinessModules({
+      businessId: req.business._id,
+      userId: req.user._id,
+      modulesInput,
+      reason: req.body?.reason || 'Module settings update',
+    });
+
+    res.json({
+      status: 'success',
+      data: {
+        business: result.business,
+        modules: result.modules,
+        changes: result.changes,
+      },
+    });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ status: 'fail', code: err.code, message: err.message });
+    }
     next(err);
   }
 });

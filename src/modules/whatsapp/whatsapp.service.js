@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { normalizeWhatsappNumber } from '../../utils/phone.js';
 
 class WhatsAppService {
   get baseUrl() {
@@ -39,10 +40,13 @@ class WhatsAppService {
   /**
    * Send an HTTP request to Meta Graph API, masking tokens from logs
    */
-  async makeApiRequest(url, payload) {
+  async makeApiRequest(url, payload, operation = null) {
+    const op = operation || (payload?.status === 'read' ? 'markAsRead' : payload?.type || 'unknown');
+
     if (this.isMockMode()) {
       logger.info(
         {
+          operation: op,
           recipient: payload.to,
           type: payload.type,
           summary: payload.text?.body || payload.interactive?.action?.buttons?.map((b) => b.reply.title),
@@ -65,27 +69,48 @@ class WhatsAppService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
       });
 
-      const data = await response.json();
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
 
       if (!response.ok) {
-        logger.error(
+        const metaError = data?.error || {};
+        const logFn = op === 'markAsRead' ? logger.warn.bind(logger) : logger.error.bind(logger);
+        logFn(
           {
+            operation: op,
+            apiVersion: this.apiVersion,
             status: response.status,
-            error: data.error?.message || 'Meta Cloud API request failed',
-            code: data.error?.code,
+            error: metaError.message || 'Meta Cloud API request failed',
+            code: metaError.code,
+            errorSubcode: metaError.error_subcode,
+            errorUserTitle: metaError.error_user_title,
+            errorUserMsg: metaError.error_user_msg,
+            errorDataDetails: metaError.error_data?.details,
+            fbtraceId: metaError.fbtrace_id,
           },
           'Error calling WhatsApp Cloud API',
         );
-        throw new Error(data.error?.message || 'Failed to dispatch WhatsApp message');
+        throw new Error(metaError.message || 'Failed to dispatch WhatsApp message');
       }
 
       return data;
     } catch (error) {
-      // Ensure accessToken is never leaked in logs
+      // Ensure accessToken and message content are never leaked in logs
       logger.error(
-        { error: error.message, recipient: payload.to, type: payload.type },
+        {
+          operation: op,
+          apiVersion: this.apiVersion,
+          error: error.message,
+          recipient: payload.to,
+          type: payload.type,
+        },
         'WhatsApp Cloud API dispatch error',
       );
       throw error;
@@ -102,7 +127,7 @@ class WhatsAppService {
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to: String(to).replace(/\D/g, ''),
+      to: normalizeWhatsappNumber(to),
       type: 'text',
       text: {
         preview_url: previewUrl,
@@ -110,7 +135,7 @@ class WhatsAppService {
       },
     };
 
-    return this.makeApiRequest(this.getMessagesUrl(), payload);
+    return this.makeApiRequest(this.getMessagesUrl(), payload, 'sendTextMessage');
   }
 
   /**
@@ -156,12 +181,12 @@ class WhatsAppService {
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to: String(to).replace(/\D/g, ''),
+      to: normalizeWhatsappNumber(to),
       type: 'interactive',
       interactive: interactivePayload,
     };
 
-    return this.makeApiRequest(this.getMessagesUrl(), payload);
+    return this.makeApiRequest(this.getMessagesUrl(), payload, 'sendButtonMessage');
   }
 
   /**
@@ -174,7 +199,7 @@ class WhatsAppService {
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to: String(to).replace(/\D/g, ''),
+      to: normalizeWhatsappNumber(to),
       type: 'image',
       image: {
         link: imageUrl,
@@ -182,7 +207,7 @@ class WhatsAppService {
       },
     };
 
-    return this.makeApiRequest(this.getMessagesUrl(), payload);
+    return this.makeApiRequest(this.getMessagesUrl(), payload, 'sendImageMessage');
   }
 
   /**
@@ -196,7 +221,7 @@ class WhatsAppService {
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to: String(to).replace(/\D/g, ''),
+      to: normalizeWhatsappNumber(to),
       type: 'template',
       template: {
         name: templateName,
@@ -205,7 +230,7 @@ class WhatsAppService {
       },
     };
 
-    return this.makeApiRequest(this.getMessagesUrl(), payload);
+    return this.makeApiRequest(this.getMessagesUrl(), payload, 'sendTemplateMessage');
   }
 
   /**
@@ -224,7 +249,7 @@ class WhatsAppService {
       message_id: messageId,
     };
 
-    return this.makeApiRequest(this.getMessagesUrl(), payload);
+    return this.makeApiRequest(this.getMessagesUrl(), payload, 'markAsRead');
   }
 
   async markAsRead(messageId) {
@@ -243,6 +268,7 @@ class WhatsAppService {
     const metaUrl = `${this.baseUrl}/${this.apiVersion}/${mediaId}`;
     const metaResponse = await fetch(metaUrl, {
       headers: { Authorization: `Bearer ${this.accessToken}` },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!metaResponse.ok) {
@@ -254,6 +280,7 @@ class WhatsAppService {
 
     const fileResponse = await fetch(downloadUrl, {
       headers: { Authorization: `Bearer ${this.accessToken}` },
+      signal: AbortSignal.timeout(20000),
     });
 
     if (!fileResponse.ok) {

@@ -1,7 +1,9 @@
+import crypto from 'crypto';
 import { describe, it, expect, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import app from '../src/app.js';
+import { env } from '../src/config/env.js';
 import { businessService } from '../src/modules/businesses/business.service.js';
 import {
   RateLimitBucket,
@@ -178,10 +180,22 @@ describe('Phase 6 (Step 6.1): API Rate Limiting & Security Hardening', () => {
   });
 
   it('allows legitimate WhatsApp webhook retries without premature blocking', async () => {
+    const body = { object: 'whatsapp_business_account', entry: [] };
+    const secret = process.env.WHATSAPP_APP_SECRET || env.WHATSAPP_APP_SECRET;
+    const headers = secret
+      ? {
+          'x-hub-signature-256': `sha256=${crypto
+            .createHmac('sha256', secret)
+            .update(JSON.stringify(body))
+            .digest('hex')}`,
+        }
+      : {};
+
     for (let i = 0; i < 5; i++) {
       const res = await request(app)
         .post('/webhook/whatsapp')
-        .send({ object: 'whatsapp_business_account', entry: [] });
+        .set(headers)
+        .send(body);
       expect(res.status).toBe(200);
     }
   });

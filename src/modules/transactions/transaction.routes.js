@@ -4,6 +4,7 @@ import { Transaction } from './transaction.model.js';
 import {
   resolveBusinessContext,
   requirePermission,
+  requireModule,
   requireWriteSubscription,
 } from '../../middleware/auth.middleware.js';
 import { mutationLimiter } from '../../middleware/rate-limiter.js';
@@ -27,8 +28,8 @@ router.get('/', requirePermission('VIEW_REPORTS'), async (req, res, next) => {
     } = req.query;
 
     const filter = { businessId: req.business._id };
-    if (type) filter.type = type;
-    if (status) filter.status = status;
+    if (type) filter.type = String(type).toUpperCase();
+    if (status) filter.status = String(status).toUpperCase();
     if (category) filter.category = String(category).toUpperCase();
 
     if (startDate || endDate) {
@@ -79,10 +80,10 @@ router.get('/', requirePermission('VIEW_REPORTS'), async (req, res, next) => {
 router.post('/sale', mutationLimiter, requirePermission('RECORD_TRANSACTIONS'), async (req, res, next) => {
   try {
     const result = await transactionService.recordSale({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
       source: 'API',
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {
@@ -94,10 +95,10 @@ router.post('/sale', mutationLimiter, requirePermission('RECORD_TRANSACTIONS'), 
 router.post('/expense', mutationLimiter, requirePermission('RECORD_TRANSACTIONS'), async (req, res, next) => {
   try {
     const result = await transactionService.recordExpense({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
       source: 'API',
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {
@@ -106,13 +107,13 @@ router.post('/expense', mutationLimiter, requirePermission('RECORD_TRANSACTIONS'
 });
 
 // POST /api/transactions/purchase - Record supplier purchase
-router.post('/purchase', mutationLimiter, requirePermission('RECORD_TRANSACTIONS'), async (req, res, next) => {
+router.post('/purchase', mutationLimiter, requireModule('purchases'), requirePermission('RECORD_TRANSACTIONS'), async (req, res, next) => {
   try {
     const result = await transactionService.recordPurchase({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
       source: 'API',
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {

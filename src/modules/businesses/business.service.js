@@ -3,6 +3,13 @@ import { Business } from './business.model.js';
 import { BusinessMember } from '../business-members/business-member.model.js';
 import { Subscription } from '../subscriptions/subscription.model.js';
 import { getBusinessTypeConfig } from './business-types.config.js';
+import {
+  ALL_MODULES,
+  getRecommendedModulesForType,
+  resolveBusinessModules,
+  validateAndNormalizeModulesInput,
+} from './business-modules.config.js';
+import { normalizeWhatsappNumber } from '../../utils/phone.js';
 import { logger } from '../../config/logger.js';
 
 class BusinessService {
@@ -11,8 +18,7 @@ class BusinessService {
    * Ensures business-level isolation: NEVER trust a businessId supplied directly by user text.
    */
   async resolveBusinessForUser(senderPhone, senderName = 'Business Owner', options = {}) {
-    const cleanPhone = String(senderPhone).replace(/\D/g, '');
-    if (!cleanPhone) throw new Error('Valid phone number is required');
+    const cleanPhone = normalizeWhatsappNumber(senderPhone);
 
     const requestedType = (options.businessType || 'RESTAURANT').toUpperCase();
     const typeConfig = getBusinessTypeConfig(requestedType);
@@ -62,6 +68,7 @@ class BusinessService {
           ? `${user.name} Business`
           : 'My Business');
 
+      const defaultModules = getRecommendedModulesForType(typeConfig.type);
       business = await Business.create({
         name: defaultName,
         businessType: typeConfig.type,
@@ -71,9 +78,10 @@ class BusinessService {
         currency: 'INR',
         address: 'Kerala, India',
         settings: {
+          modules: defaultModules,
           enabledModules: {
             moneyManagement: true,
-            inventoryManagement: true,
+            inventoryManagement: defaultModules.inventory.enabled,
           },
           inventory: { ...typeConfig.inventoryDefaults },
         },
@@ -137,6 +145,62 @@ class BusinessService {
     );
     if (!business) throw new Error('BUSINESS_NOT_FOUND');
     return { business, businessConfig: config };
+  }
+
+  /**
+   * Update business module configuration with server-side validation and audit logging.
+   */
+  async updateBusinessModules({ businessId, userId, modulesInput, reason = '' }) {
+    const business = await Business.findById(businessId);
+    if (!business) throw new Error('BUSINESS_NOT_FOUND');
+
+    const currentModules = resolveBusinessModules(business);
+    const nextModules = validateAndNormalizeModulesInput(modulesInput, currentModules);
+
+    const auditEntries = [];
+    const now = new Date();
+    for (const key of ALL_MODULES) {
+      const prevEnabled = Boolean(currentModules[key]?.enabled);
+      const nextEnabled = Boolean(nextModules[key]?.enabled);
+      if (prevEnabled !== nextEnabled) {
+        auditEntries.push({
+          moduleKey: key,
+          previousEnabled: prevEnabled,
+          nextEnabled,
+          changedBy: userId,
+          reason: String(reason || '').trim(),
+          changedAt: now,
+        });
+      }
+    }
+
+    const updateOps = {
+      $set: {
+        'settings.modules': nextModules,
+        'settings.enabledModules.moneyManagement': true,
+        'settings.enabledModules.inventoryManagement': Boolean(nextModules.inventory?.enabled),
+      },
+    };
+    if (auditEntries.length > 0) {
+      updateOps.$push = {
+        'settings.moduleAuditLog': { $each: auditEntries },
+      };
+    }
+
+    const updated = await Business.findByIdAndUpdate(businessId, updateOps, { new: true });
+
+    if (auditEntries.length > 0) {
+      logger.info(
+        { businessId, userId, changes: auditEntries },
+        'Business module configuration updated',
+      );
+    }
+
+    return {
+      business: updated,
+      modules: resolveBusinessModules(updated),
+      changes: auditEntries,
+    };
   }
 
   /**

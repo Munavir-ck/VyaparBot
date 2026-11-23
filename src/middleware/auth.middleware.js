@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { authService } from '../modules/auth/auth.service.js';
 import { businessService } from '../modules/businesses/business.service.js';
+import { isModuleEnabled, resolveBusinessModules } from '../modules/businesses/business-modules.config.js';
 import { subscriptionService } from '../modules/subscriptions/subscription.service.js';
 import { User } from '../modules/users/user.model.js';
 import { env } from '../config/env.js';
@@ -145,14 +146,29 @@ export async function resolveBusinessContext(req, res, next) {
 
   if (sessionToken) {
     const payload = authService.verifySessionToken(sessionToken);
-    if (!payload || !payload.phone) {
+    if (!payload || !payload.phone || !payload.userId) {
       return res.status(401).json({
         status: 'fail',
         code: 'INVALID_SESSION',
         message: 'Session expired or invalid. Please log in again.',
       });
     }
-    phone = payload.phone;
+    const sessionUser = await User.findById(payload.userId);
+    if (!sessionUser || sessionUser.status === 'SUSPENDED' || sessionUser.status === 'DELETED') {
+      return res.status(401).json({
+        status: 'fail',
+        code: 'INVALID_SESSION',
+        message: 'User account not active',
+      });
+    }
+    if ((payload.tokenVersion ?? 0) !== (sessionUser.tokenVersion ?? 0)) {
+      return res.status(401).json({
+        status: 'fail',
+        code: 'INVALID_SESSION',
+        message: 'Session has been invalidated. Please log in again.',
+      });
+    }
+    phone = sessionUser.whatsappNumber || payload.phone;
   } else {
     // Strictly block raw x-user-phone in production
     if (env.isProduction || process.env.NODE_ENV === 'production') {
@@ -188,6 +204,7 @@ export async function resolveBusinessContext(req, res, next) {
     req.memberRole = memberRole;
     req.permissions = permissions || [];
     req.businessConfig = businessConfig;
+    req.enabledModules = resolveBusinessModules(business);
     next();
   } catch (err) {
     res.status(err.statusCode || 401).json({
@@ -243,6 +260,30 @@ export function requirePlatformAdmin(req, res, next) {
     });
   }
   return next();
+}
+
+/**
+ * Enforce that a business has the requested optional/core module enabled.
+ * Always enforced server-side regardless of frontend visibility.
+ */
+export function requireModule(moduleKey) {
+  return (req, res, next) => {
+    if (!req.business) {
+      return res.status(401).json({ status: 'fail', message: 'Business context required' });
+    }
+    if (!isModuleEnabled(req.business, moduleKey)) {
+      logger.warn(
+        { userId: req.user?._id, businessId: req.business._id, moduleKey },
+        'Access to disabled business module blocked',
+      );
+      return res.status(403).json({
+        status: 'fail',
+        code: 'MODULE_DISABLED',
+        message: `The ${moduleKey} module is not enabled for this business.`,
+      });
+    }
+    return next();
+  };
 }
 
 /**

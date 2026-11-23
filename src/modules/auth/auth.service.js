@@ -5,7 +5,9 @@ import { Business } from '../businesses/business.model.js';
 import { BusinessMember } from '../business-members/business-member.model.js';
 import { subscriptionService } from '../subscriptions/subscription.service.js';
 import { getBusinessTypeConfig } from '../businesses/business-types.config.js';
+import { resolveBusinessModules } from '../businesses/business-modules.config.js';
 import { whatsappService } from '../whatsapp/whatsapp.service.js';
+import { normalizeWhatsappNumber } from '../../utils/phone.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 
@@ -80,12 +82,7 @@ class AuthService {
    * Never logs OTP in production.
    */
   async requestOtp(rawPhone) {
-    const phone = String(rawPhone || '').replace(/\D/g, '');
-    if (phone.length < 10) {
-      const err = new Error('Valid WhatsApp phone number is required');
-      err.statusCode = 400;
-      throw err;
-    }
+    const phone = normalizeWhatsappNumber(rawPhone);
 
     const now = new Date();
     const existing = await OtpChallenge.findOne({ whatsappNumber: phone });
@@ -146,14 +143,15 @@ class AuthService {
    * Verify OTP, enforce expiry & max attempts, and return signed session + user/business context
    */
   async verifyOtp(rawPhone, otpInput, name = 'Business Owner') {
-    const phone = String(rawPhone || '').replace(/\D/g, '');
     const otp = String(otpInput || '').trim();
 
-    if (phone.length < 10 || !otp) {
+    if (!rawPhone || !otp) {
       const err = new Error('Phone number and OTP are required');
       err.statusCode = 400;
       throw err;
     }
+
+    const phone = normalizeWhatsappNumber(rawPhone);
 
     const challenge = await OtpChallenge.findOne({ whatsappNumber: phone });
     if (!challenge || challenge.used) {
@@ -246,6 +244,7 @@ class AuthService {
         memberRole: membership.role,
         permissions: membership.permissions || [],
         businessConfig: getBusinessTypeConfig(membership.businessId.businessType),
+        modules: resolveBusinessModules(membership.businessId),
         subscription: sub
           ? {
               status: sub.status,
@@ -270,6 +269,7 @@ class AuthService {
         memberRole: 'OWNER',
         permissions: membership?.permissions || [],
         businessConfig: getBusinessTypeConfig(ownedBusiness.businessType),
+        modules: resolveBusinessModules(ownedBusiness),
         needsOnboarding: false,
       };
     }

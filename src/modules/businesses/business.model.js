@@ -6,6 +6,11 @@ export const ALL_BUSINESS_TYPES = [
   'RETAIL',
   'WHOLESALE',
   'GENERAL',
+  'ELECTRONICS',
+  'CLOTHING',
+  'PHARMACY',
+  'SERVICE',
+  'FREELANCER',
   'CAFE',
   'BAKERY',
   'CLOUD_KITCHEN',
@@ -53,6 +58,33 @@ const businessSchema = new mongoose.Schema(
       default: 'Kerala, India',
     },
     settings: {
+      modules: {
+        finance: {
+          enabled: { type: Boolean, default: true },
+        },
+        inventory: {
+          enabled: { type: Boolean },
+        },
+        purchases: {
+          enabled: { type: Boolean },
+        },
+        customers: {
+          enabled: { type: Boolean },
+        },
+      },
+      moduleAuditLog: {
+        type: [
+          {
+            moduleKey: { type: String, required: true },
+            previousEnabled: { type: Boolean, required: true },
+            nextEnabled: { type: Boolean, required: true },
+            changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+            reason: { type: String, trim: true, default: '' },
+            changedAt: { type: Date, default: Date.now },
+          },
+        ],
+        default: [],
+      },
       enabledModules: {
         moneyManagement: { type: Boolean, default: true },
         inventoryManagement: { type: Boolean, default: true },

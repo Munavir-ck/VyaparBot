@@ -60,8 +60,12 @@ export const env = {
   WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || 'v21.0',
   WHATSAPP_API_BASE_URL: process.env.WHATSAPP_API_BASE_URL || 'https://graph.facebook.com',
 
-  // AI Integration (OpenAI)
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+  // AI Integration (OpenAI or Groq / OpenAI-compatible)
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || '',
+  AI_BASE_URL: process.env.AI_BASE_URL || '',
+  AI_TEXT_MODEL: process.env.AI_TEXT_MODEL || '',
+  AI_VISION_MODEL: process.env.AI_VISION_MODEL || '',
+  AI_VOICE_MODEL: process.env.AI_VOICE_MODEL || '',
 
   // Object Storage
   STORAGE_BUCKET: process.env.STORAGE_BUCKET || '',

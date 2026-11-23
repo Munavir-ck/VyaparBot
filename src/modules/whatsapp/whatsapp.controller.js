@@ -78,10 +78,22 @@ export const whatsappController = {
           // Delivery status updates
           if (value.statuses && value.statuses.length > 0) {
             for (const statusObj of value.statuses) {
-              logger.debug(
-                { messageId: statusObj.id, status: statusObj.status, recipient: statusObj.recipient_id },
-                'WhatsApp message delivery status update',
-              );
+              if (statusObj.status === 'failed') {
+                logger.warn(
+                  {
+                    messageId: statusObj.id,
+                    status: statusObj.status,
+                    recipient: statusObj.recipient_id,
+                    errors: statusObj.errors,
+                  },
+                  'WhatsApp message delivery failed',
+                );
+              } else {
+                logger.debug(
+                  { messageId: statusObj.id, status: statusObj.status, recipient: statusObj.recipient_id },
+                  'WhatsApp message delivery status update',
+                );
+              }
             }
             continue;
           }

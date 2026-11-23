@@ -28,8 +28,9 @@ MONEY MANAGEMENT RULES:
 INVENTORY MANAGEMENT RULES:
 1. ADD_PRODUCT: "Add product Sugar unit kg min 10 price 45" -> inventoryAction.productName, unit, minStockLevel, sellingPrice/unitCost.
 2. STOCK_IN: "Stock in 50 kg Rice", "Innu 50 kg ari stock vannu", "ഇന്ന് 50 കിലോ അരി സ്റ്റോക്ക് വന്നു" -> intent = "STOCK_IN", inventoryAction.productName, quantity, unit.
-3. STOCK_OUT: "Stock out 10 kg Sugar", "Sold 5 kg Rice from stock" -> intent = "STOCK_OUT", inventoryAction.productName, quantity, unit.
-4. RECORD_WASTAGE: "5 kg tomato wasted", "2 kg meen waste aayi", "2 കിലോ തക്കാളി നശിച്ചു" -> intent = "RECORD_WASTAGE", inventoryAction.productName, quantity, unit, reason.
+3. STOCK_OUT: "Stock out 10 kg Sugar", "Sold 5 kg Rice from stock", "5 samoosa vittu", "10 chaya vittu", "5 സമൂസ വിറ്റു" -> intent = "STOCK_OUT", inventoryAction.productName, quantity, unit.
+   - IMPORTANT: Manglish "vittu" and Malayalam "വിറ്റു" mean SOLD (STOCK_OUT when quantity+product are given without a money total; ADD_SALE if money amount is given). NEVER classify "vittu" / "വിറ്റു" as RECORD_WASTAGE.
+4. RECORD_WASTAGE: ONLY for spoiled/damaged/wasted items: "5 kg tomato wasted", "2 kg meen waste aayi", "2 കിലോ തക്കാളി നശിച്ചു" -> intent = "RECORD_WASTAGE", inventoryAction.productName, quantity, unit, reason.
 5. STOCK_ADJUSTMENT: "Adjust rice stock to 45 kg", "Stock adjust Sugar to 20 kg" -> intent = "STOCK_ADJUSTMENT", inventoryAction.productName, newStockCount, unit, reason.
 6. CHECK_STOCK: "Sugar stock ethra und?", "Check stock of Rice", "പഞ്ചസാര സ്റ്റോക്ക് എത്രയുണ്ട്?" -> intent = "CHECK_STOCK", inventoryAction.productName.
 7. VIEW_LOW_STOCK: "Low stock items", "Kuravulla stock", "കുറവുള്ള സ്റ്റോക്ക്" -> intent = "VIEW_LOW_STOCK".

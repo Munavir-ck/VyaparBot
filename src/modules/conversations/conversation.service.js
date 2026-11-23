@@ -14,6 +14,7 @@ import { whatsappMediaService } from '../whatsapp/whatsapp-media.service.js';
 import { validateImageBuffer } from '../../utils/image-validator.js';
 import { validateAudioBuffer } from '../../utils/audio-validator.js';
 import { logger } from '../../config/logger.js';
+import { normalizeWhatsappNumber } from '../../utils/phone.js';
 import { CONVERSATION_INTENTS } from '../../ai/schemas/intent.schema.js';
 
 class ConversationService {
@@ -28,7 +29,7 @@ class ConversationService {
    * Main entrypoint for incoming WhatsApp messages
    */
   async handleIncomingMessage(senderNumber, textContent = '', buttonId = null, senderName = 'User', media = null) {
-    const cleanNumber = String(senderNumber).replace(/\D/g, '');
+    const cleanNumber = normalizeWhatsappNumber(senderNumber);
     const cleanText = (textContent || '').trim();
 
     // 1. Resolve business & authenticated user context
@@ -232,10 +233,13 @@ class ConversationService {
       return whatsappService.sendTextMessage(session.whatsappNumber, help);
     }
 
-    // Handle Confirmation of Pending Action (e.g., Stock Adjustment) or Pending Transaction
+    // Handle Confirmation of Pending Action (e.g., Stock Adjustment, Text Action) or Pending Transaction
     if (extraction.intent === CONVERSATION_INTENTS.CONFIRM) {
       if (session.pendingConfirmation?.type === 'STOCK_ADJUSTMENT') {
         return this.confirmStockAdjustment(session, user, business, responseStyle);
+      }
+      if (session.pendingConfirmation?.type === 'TEXT_ACTION') {
+        return this.confirmPendingTextAction(session, user, business, responseStyle, authContext);
       }
       if (session.pendingTransaction) {
         return this.confirmPendingTransaction(session, user, business, responseStyle);
@@ -355,6 +359,17 @@ class ConversationService {
       return whatsappService.sendTextMessage(session.whatsappNumber, reply);
     }
 
+    if (this.shouldRequireTextConfirmation() && this.isWriteConfirmationIntent(extraction.intent)) {
+      return this.promptTextActionConfirmation(session, extraction, cleanText, responseStyle);
+    }
+
+    return this.executeExtractedIntent(session, user, business, extraction, responseStyle);
+  }
+
+  /**
+   * Execute a validated/confirmed text extraction intent
+   */
+  async executeExtractedIntent(session, user, business, extraction, responseStyle) {
     // Handle Inventory Intents
     if (
       [
@@ -700,6 +715,7 @@ class ConversationService {
       audioBuffer,
       mimeType: audioValidation.mimeType,
       mockTranscript: media.mockTranscript,
+      preferredLanguage: user.preferredLanguage,
     });
 
     logger.info({ phone: session.whatsappNumber, transcript }, 'Voice note transcribed');
@@ -716,6 +732,21 @@ class ConversationService {
       session.detectedLanguage,
       user.preferredLanguage,
     );
+
+    if (buttonId === 'confirm_text_action' && session.pendingConfirmation?.type === 'TEXT_ACTION') {
+      return this.confirmPendingTextAction(session, user, business, responseStyle, authContext);
+    }
+
+    if (buttonId === 'cancel_text_action') {
+      session.pendingConfirmation = null;
+      session.currentIntent = 'IDLE';
+      await session.save();
+      const msg =
+        responseStyle === 'ml'
+          ? 'രേഖപ്പെടുത്തുന്നത് റദ്ദാക്കി 👍'
+          : 'Entry cancelled 👍';
+      return whatsappService.sendTextMessage(session.whatsappNumber, msg);
+    }
 
     if (buttonId === 'confirm_stock_adjustment' && session.pendingConfirmation?.type === 'STOCK_ADJUSTMENT') {
       if (authContext && !this.hasPermission(authContext, 'ADJUST_STOCK')) {
@@ -1296,6 +1327,145 @@ class ConversationService {
       session.whatsappNumber,
       `👥 *Customer Receivable Balances*\n\n${lines}`,
     );
+  }
+
+  shouldRequireTextConfirmation() {
+    if (process.env.NODE_ENV === 'test') {
+      return process.env.REQUIRE_WHATSAPP_CONFIRMATION === 'true';
+    }
+    return process.env.REQUIRE_WHATSAPP_CONFIRMATION !== 'false';
+  }
+
+  isWriteConfirmationIntent(intent) {
+    return [
+      CONVERSATION_INTENTS.ADD_SALE,
+      CONVERSATION_INTENTS.ADD_EXPENSE,
+      CONVERSATION_INTENTS.ADD_PURCHASE,
+      CONVERSATION_INTENTS.RECORD_PAYMENT,
+      CONVERSATION_INTENTS.ADD_CREDIT_SALE,
+      CONVERSATION_INTENTS.RECORD_CUSTOMER_PAYMENT,
+      CONVERSATION_INTENTS.ADD_PRODUCT,
+      CONVERSATION_INTENTS.STOCK_IN,
+      CONVERSATION_INTENTS.STOCK_OUT,
+      CONVERSATION_INTENTS.RECORD_WASTAGE,
+      CONVERSATION_INTENTS.DELETE_TRANSACTION,
+      CONVERSATION_INTENTS.EDIT_TRANSACTION,
+    ].includes(intent);
+  }
+
+  formatTextConfirmationPrompt(extraction, rawText, responseStyle = 'en') {
+    const intentLabels = {
+      [CONVERSATION_INTENTS.ADD_SALE]: responseStyle === 'ml' ? 'വിൽപ്പന (Sale)' : 'Sale',
+      [CONVERSATION_INTENTS.ADD_EXPENSE]: responseStyle === 'ml' ? 'ചിലവ് (Expense)' : 'Expense',
+      [CONVERSATION_INTENTS.ADD_PURCHASE]: responseStyle === 'ml' ? 'സപ്ലയർ പർച്ചേസ്' : 'Supplier Purchase',
+      [CONVERSATION_INTENTS.RECORD_PAYMENT]: responseStyle === 'ml' ? 'സപ്ലയർ പേയ്‌മെന്റ്' : 'Supplier Payment',
+      [CONVERSATION_INTENTS.ADD_CREDIT_SALE]: responseStyle === 'ml' ? 'ക്രെഡിറ്റ് വിൽപ്പന' : 'Credit Sale',
+      [CONVERSATION_INTENTS.RECORD_CUSTOMER_PAYMENT]: responseStyle === 'ml' ? 'കസ്റ്റമർ പേയ്‌മെന്റ്' : 'Customer Payment',
+      [CONVERSATION_INTENTS.ADD_PRODUCT]: responseStyle === 'ml' ? 'പുതിയ ഉൽപ്പന്നം' : 'Add Product',
+      [CONVERSATION_INTENTS.STOCK_IN]: responseStyle === 'ml' ? 'സ്റ്റോക്ക് ചേർക്കൽ' : 'Stock In',
+      [CONVERSATION_INTENTS.STOCK_OUT]: responseStyle === 'ml' ? 'സ്റ്റോക്ക് കുറയ്ക്കൽ' : 'Stock Out',
+      [CONVERSATION_INTENTS.RECORD_WASTAGE]: responseStyle === 'ml' ? 'വേസ്റ്റേജ്' : 'Record Wastage',
+      [CONVERSATION_INTENTS.DELETE_TRANSACTION]: responseStyle === 'ml' ? 'അവസാന എൻട്രി നീക്കം ചെയ്യൽ' : 'Delete Last Entry',
+      [CONVERSATION_INTENTS.EDIT_TRANSACTION]: responseStyle === 'ml' ? 'അവസാന എൻട്രി തിരുത്തൽ' : 'Edit Last Entry',
+    };
+
+    const lines = [
+      responseStyle === 'ml' ? '📝 *ദയവായി സ്ഥിരീകരിക്കുക:*' : '📝 *Please confirm this entry:*',
+      '',
+    ];
+
+    if (rawText) {
+      lines.push(responseStyle === 'ml' ? `നിങ്ങൾ അയച്ചത്: "${rawText}"` : `You typed: "${rawText}"`);
+    }
+
+    lines.push(
+      responseStyle === 'ml'
+        ? `ഇനം: *${intentLabels[extraction.intent] || extraction.intent}*`
+        : `Action: *${intentLabels[extraction.intent] || extraction.intent}*`,
+    );
+
+    if (extraction.amount !== null && extraction.amount !== undefined) {
+      lines.push(
+        responseStyle === 'ml'
+          ? `തുക: *${this.formatCurrency(extraction.amount)}*`
+          : `Amount: *${this.formatCurrency(extraction.amount)}*`,
+      );
+    }
+    if (extraction.category) {
+      lines.push(`Category: ${extraction.category}`);
+    }
+    if (extraction.paymentMethod) {
+      lines.push(`Payment: ${extraction.paymentMethod}`);
+    }
+    if (extraction.merchantOrSupplier) {
+      lines.push(`Supplier: ${extraction.merchantOrSupplier}`);
+    }
+    if (extraction.customerName) {
+      lines.push(`Customer: ${extraction.customerName}`);
+    }
+    if (extraction.inventoryAction?.productName) {
+      const inv = extraction.inventoryAction;
+      const qtyPart = inv.quantity ? ` (${inv.quantity} ${inv.unit || 'units'})` : '';
+      lines.push(`Product: *${inv.productName}*${qtyPart}`);
+    }
+
+    lines.push('');
+    lines.push(responseStyle === 'ml' ? 'ഇത് സേവ് ചെയ്യണോ?' : 'Is this correct? Should I save it?');
+    return lines.join('\n');
+  }
+
+  async promptTextActionConfirmation(session, extraction, rawText, responseStyle = 'en') {
+    session.pendingConfirmation = {
+      type: 'TEXT_ACTION',
+      extraction,
+      rawText,
+    };
+    session.currentIntent = 'CONFIRM_TEXT_ACTION';
+    await session.save();
+
+    const promptBody = this.formatTextConfirmationPrompt(extraction, rawText, responseStyle);
+    const buttons = [
+      { id: 'confirm_text_action', title: responseStyle === 'ml' ? '✅ ശരി' : '✅ Confirm' },
+      { id: 'cancel_text_action', title: responseStyle === 'ml' ? '❌ വേണ്ട' : '❌ Cancel' },
+    ];
+
+    try {
+      return await whatsappService.sendButtonMessage(session.whatsappNumber, promptBody, buttons);
+    } catch {
+      const fallbackSuffix =
+        responseStyle === 'ml'
+          ? '\n\n("Confirm" അല്ലെങ്കിൽ "Cancel" എന്ന് മറുപടി അയക്കുക)'
+          : '\n\n(Reply "Confirm" or "Cancel")';
+      return whatsappService.sendTextMessage(session.whatsappNumber, `${promptBody}${fallbackSuffix}`);
+    }
+  }
+
+  async confirmPendingTextAction(session, user, business, responseStyle, authContext = null) {
+    const pending = session.pendingConfirmation;
+    if (!pending || pending.type !== 'TEXT_ACTION' || !pending.extraction) {
+      session.pendingConfirmation = null;
+      session.currentIntent = 'IDLE';
+      await session.save();
+      return whatsappService.sendTextMessage(session.whatsappNumber, 'No pending entry to confirm.');
+    }
+
+    const extraction = pending.extraction;
+    const requiredPermission = this.getRequiredPermissionForIntent(extraction.intent);
+    if (requiredPermission && authContext && !this.hasPermission(authContext, requiredPermission)) {
+      session.pendingConfirmation = null;
+      session.currentIntent = 'IDLE';
+      await session.save();
+      return whatsappService.sendTextMessage(
+        session.whatsappNumber,
+        `⛔ Authorization denied: You do not have permission (${requiredPermission}) to perform this action.`,
+      );
+    }
+
+    session.pendingConfirmation = null;
+    session.currentIntent = 'IDLE';
+    await session.save();
+
+    return this.executeExtractedIntent(session, user, business, extraction, responseStyle);
   }
 
   getGreetingMessage(businessName, style = 'en') {

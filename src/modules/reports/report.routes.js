@@ -3,6 +3,7 @@ import { reportService } from './report.service.js';
 import {
   resolveBusinessContext,
   requirePermission,
+  requireModule,
   requirePlanFeature,
 } from '../../middleware/auth.middleware.js';
 
@@ -90,7 +91,7 @@ router.get('/cash-flow', requirePermission('VIEW_REPORTS'), requirePlanFeature('
 });
 
 // GET /api/reports/receivables
-router.get('/receivables', requirePermission('VIEW_REPORTS'), async (req, res, next) => {
+router.get('/receivables', requireModule('customers'), requirePermission('VIEW_REPORTS'), async (req, res, next) => {
   try {
     const report = await reportService.generateReceivablesReport(req.business._id);
     res.json({ status: 'success', data: report });
@@ -100,7 +101,7 @@ router.get('/receivables', requirePermission('VIEW_REPORTS'), async (req, res, n
 });
 
 // GET /api/reports/payables
-router.get('/payables', requirePermission('VIEW_REPORTS'), async (req, res, next) => {
+router.get('/payables', requireModule('purchases'), requirePermission('VIEW_REPORTS'), async (req, res, next) => {
   try {
     const report = await reportService.generatePayablesReport(req.business._id);
     res.json({ status: 'success', data: report });
@@ -110,7 +111,7 @@ router.get('/payables', requirePermission('VIEW_REPORTS'), async (req, res, next
 });
 
 // GET /api/reports/inventory
-router.get('/inventory', requirePermission('VIEW_INVENTORY'), requirePlanFeature('advancedReports'), async (req, res, next) => {
+router.get('/inventory', requireModule('inventory'), requirePermission('VIEW_INVENTORY'), requirePlanFeature('advancedReports'), async (req, res, next) => {
   try {
     const { startDate, endDate, category } = req.query;
     const report = await reportService.generateInventoryReport(req.business._id, {

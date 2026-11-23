@@ -4,7 +4,9 @@ import { logger } from '../config/logger.js';
 export const errorHandler = (err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   const status = err.status || 'error';
-  const message = err.message || 'Internal server error';
+  const isProd = env.isProduction || process.env.NODE_ENV === 'production';
+  const message =
+    isProd && statusCode >= 500 ? 'Internal server error' : err.message || 'Internal server error';
 
   logger.error({
     err: {

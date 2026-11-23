@@ -5,6 +5,7 @@ import { StockMovement } from './stock-movement.model.js';
 import {
   resolveBusinessContext,
   requirePermission,
+  requireModule,
   requireWriteSubscription,
 } from '../../middleware/auth.middleware.js';
 import { subscriptionService } from '../subscriptions/subscription.service.js';
@@ -12,7 +13,7 @@ import { mutationLimiter } from '../../middleware/rate-limiter.js';
 
 const router = express.Router();
 
-router.use(resolveBusinessContext, requireWriteSubscription);
+router.use(resolveBusinessContext, requireModule('inventory'), requireWriteSubscription);
 
 // GET /api/inventory/products
 router.get('/products', requirePermission('VIEW_INVENTORY'), async (req, res, next) => {
@@ -56,9 +57,9 @@ router.post('/products', requirePermission('MANAGE_INVENTORY'), async (req, res,
       async () => {
         await subscriptionService.checkProductLimit(req.business._id);
         return inventoryService.createOrUpdateProduct({
+          ...req.body,
           businessId: req.business._id,
           createdBy: req.user._id,
-          ...req.body,
         });
       },
     );
@@ -120,10 +121,10 @@ router.delete('/products/:id', requirePermission('MANAGE_INVENTORY'), async (req
 router.post('/stock-in', mutationLimiter, requirePermission('MANAGE_INVENTORY'), async (req, res, next) => {
   try {
     const result = await inventoryService.recordStockMovement({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
       type: 'STOCK_IN',
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {
@@ -135,10 +136,10 @@ router.post('/stock-in', mutationLimiter, requirePermission('MANAGE_INVENTORY'),
 router.post('/stock-out', mutationLimiter, requirePermission('MANAGE_INVENTORY'), async (req, res, next) => {
   try {
     const result = await inventoryService.recordStockMovement({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
       type: 'STOCK_OUT',
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {
@@ -150,9 +151,9 @@ router.post('/stock-out', mutationLimiter, requirePermission('MANAGE_INVENTORY')
 router.post('/wastage', mutationLimiter, requirePermission('MANAGE_INVENTORY'), async (req, res, next) => {
   try {
     const result = await inventoryService.recordWastageOrDamage({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {
@@ -164,9 +165,9 @@ router.post('/wastage', mutationLimiter, requirePermission('MANAGE_INVENTORY'), 
 router.post('/adjust', mutationLimiter, requirePermission('ADJUST_STOCK'), async (req, res, next) => {
   try {
     const result = await inventoryService.adjustStock({
+      ...req.body,
       businessId: req.business._id,
       createdBy: req.user._id,
-      ...req.body,
     });
     res.json({ status: 'success', data: result });
   } catch (err) {
@@ -199,8 +200,8 @@ router.get('/movements', requirePermission('VIEW_INVENTORY'), async (req, res, n
   try {
     const { productId, type, startDate, endDate, page = 1, limit = 50 } = req.query;
     const filter = { businessId: req.business._id };
-    if (productId) filter.productId = productId;
-    if (type) filter.type = type;
+    if (productId) filter.productId = String(productId);
+    if (type) filter.type = String(type).toUpperCase();
 
     if (startDate || endDate) {
       filter.createdAt = {};

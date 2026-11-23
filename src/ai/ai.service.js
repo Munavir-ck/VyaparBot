@@ -72,14 +72,32 @@ class AIService {
     this._client = null;
   }
 
+  getProviderConfig() {
+    const apiKey = env.OPENAI_API_KEY || process.env.GROQ_API_KEY || '';
+    const isGroq = Boolean(apiKey.startsWith('gsk_') || (env.AI_BASE_URL && env.AI_BASE_URL.includes('groq.com')));
+    const baseURL = env.AI_BASE_URL || (isGroq ? 'https://api.groq.com/openai/v1' : undefined);
+    return {
+      apiKey,
+      isGroq,
+      baseURL,
+      textModel: env.AI_TEXT_MODEL || (isGroq ? 'openai/gpt-oss-120b' : 'gpt-4o-mini'),
+      visionModel: env.AI_VISION_MODEL || (isGroq ? 'openai/gpt-oss-120b' : 'gpt-4o-mini'),
+      voiceModel: env.AI_VOICE_MODEL || (isGroq ? 'whisper-large-v3' : 'whisper-1'),
+      supportsJsonSchema: !isGroq && !env.AI_BASE_URL,
+    };
+  }
+
   isConfigured() {
-    return Boolean(env.OPENAI_API_KEY && env.OPENAI_API_KEY !== 'test_openai_key');
+    const { apiKey } = this.getProviderConfig();
+    return Boolean(apiKey && apiKey !== 'test_openai_key' && apiKey !== 'your_openai_api_key');
   }
 
   getClient() {
     if (!this._client && this.isConfigured()) {
+      const { apiKey, baseURL } = this.getProviderConfig();
       this._client = new OpenAI({
-        apiKey: env.OPENAI_API_KEY,
+        apiKey,
+        ...(baseURL ? { baseURL } : {}),
         timeout: 20000,
         maxRetries: 1,
       });
@@ -88,7 +106,7 @@ class AIService {
   }
 
   /**
-   * Generic structured extraction using OpenAI JSON Schema
+   * Generic structured extraction using OpenAI JSON Schema (or json_object for Groq/compatible APIs)
    */
   async extractWithSchema({ systemPrompt, userPrompt, jsonSchema, fallbackFn }) {
     if (!this.isConfigured() || env.NODE_ENV === 'test') {
@@ -97,16 +115,23 @@ class AIService {
 
     try {
       const client = this.getClient();
+      const { textModel, supportsJsonSchema } = this.getProviderConfig();
+      const effectiveSystemPrompt = supportsJsonSchema
+        ? systemPrompt
+        : `${systemPrompt}\n\nIMPORTANT: Return ONLY a valid JSON object (no markdown fences) strictly matching this JSON Schema:\n${JSON.stringify(jsonSchema?.schema || jsonSchema)}`;
+
       const response = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: textModel,
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: effectiveSystemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: jsonSchema,
-        },
+        response_format: supportsJsonSchema
+          ? {
+              type: 'json_schema',
+              json_schema: jsonSchema,
+            }
+          : { type: 'json_object' },
         temperature: 0.1,
       });
 
@@ -114,7 +139,7 @@ class AIService {
       const parsed = JSON.parse(raw);
       return parsed;
     } catch (err) {
-      logger.error({ err: err.message }, 'OpenAI structured extraction failed; using deterministic fallback');
+      logger.error({ err: err.message }, 'AI structured extraction failed; using deterministic fallback');
       return fallbackFn();
     }
   }
@@ -190,11 +215,16 @@ class AIService {
 
     try {
       const client = this.getClient();
+      const { visionModel, supportsJsonSchema } = this.getProviderConfig();
       const base64Image = imageBuffer.toString('base64');
+      const systemContent = supportsJsonSchema
+        ? SCREENSHOT_EXTRACTION_SYSTEM_PROMPT
+        : `${SCREENSHOT_EXTRACTION_SYSTEM_PROMPT}\n\nIMPORTANT: Return ONLY a valid JSON object (no markdown fences).`;
+
       const response = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: visionModel,
         messages: [
-          { role: 'system', content: SCREENSHOT_EXTRACTION_SYSTEM_PROMPT },
+          { role: 'system', content: systemContent },
           {
             role: 'user',
             content: [
@@ -206,10 +236,12 @@ class AIService {
             ],
           },
         ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: SCREENSHOT_EXTRACTION_JSON_SCHEMA,
-        },
+        response_format: supportsJsonSchema
+          ? {
+              type: 'json_schema',
+              json_schema: SCREENSHOT_EXTRACTION_JSON_SCHEMA,
+            }
+          : { type: 'json_object' },
         temperature: 0.1,
       });
 
@@ -225,7 +257,7 @@ class AIService {
   /**
    * Transcribe voice note buffer (Malayalam, Manglish, English, Mixed)
    */
-  async transcribeVoice({ audioBuffer, mimeType = 'audio/ogg', mockTranscript = null }) {
+  async transcribeVoice({ audioBuffer, mimeType = 'audio/ogg', mockTranscript = null, preferredLanguage = null }) {
     if (mockTranscript !== null && mockTranscript !== undefined) {
       return {
         transcript: String(mockTranscript).trim(),
@@ -245,14 +277,44 @@ class AIService {
 
     try {
       const client = this.getClient();
-      const file = new File([audioBuffer], 'voice.ogg', { type: mimeType });
-      const transcription = await client.audio.transcriptions.create({
+      const { voiceModel, isGroq } = this.getProviderConfig();
+      const extMap = {
+        'audio/ogg': 'ogg',
+        'audio/mpeg': 'mp3',
+        'audio/mp3': 'mp3',
+        'audio/mp4': 'm4a',
+        'audio/amr': 'amr',
+        'audio/wav': 'wav',
+        'audio/aac': 'aac',
+        'audio/webm': 'webm',
+      };
+      const baseMime = String(mimeType || 'audio/ogg').split(';')[0].trim().toLowerCase();
+      const ext = extMap[baseMime] || 'ogg';
+      const file = new File([audioBuffer], `voice.${ext}`, { type: baseMime });
+      const explicitLanguage =
+        process.env.VOICE_LANGUAGE || (preferredLanguage === 'ml' ? 'ml' : undefined);
+
+      let transcription = await client.audio.transcriptions.create({
         file,
-        model: 'whisper-1',
+        model: voiceModel,
+        ...(explicitLanguage ? { language: explicitLanguage } : {}),
       });
+      let text = (transcription.text || '').trim();
+
+      // If auto-detection guessed a non-Malayalam/non-Latin script (e.g. Punjabi/Hindi/Arabic), retry in Malayalam
+      if (!explicitLanguage && /[\u0600-\u06FF\u0900-\u0CFF]/.test(text) && !/[\u0D00-\u0D7F]/.test(text)) {
+        const retryFile = new File([audioBuffer], `voice.${ext}`, { type: baseMime });
+        transcription = await client.audio.transcriptions.create({
+          file: retryFile,
+          model: voiceModel,
+          language: 'ml',
+        });
+        text = (transcription.text || '').trim();
+      }
+
       return {
-        transcript: (transcription.text || '').trim(),
-        provider: 'openai_whisper',
+        transcript: text,
+        provider: isGroq ? 'groq_whisper' : 'openai_whisper',
       };
     } catch (err) {
       logger.error({ err: err.message }, 'Voice transcription failed');

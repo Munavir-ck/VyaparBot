@@ -3,13 +3,14 @@ import { customerService } from './customer.service.js';
 import {
   resolveBusinessContext,
   requirePermission,
+  requireModule,
   requireWriteSubscription,
 } from '../../middleware/auth.middleware.js';
 import { mutationLimiter } from '../../middleware/rate-limiter.js';
 
 const router = express.Router();
 
-router.use(resolveBusinessContext, requireWriteSubscription);
+router.use(resolveBusinessContext, requireModule('customers'), requireWriteSubscription);
 
 // GET /api/customers - List & search customers (with optional pagination)
 router.get('/', requirePermission('MANAGE_CUSTOMERS'), async (req, res, next) => {
@@ -136,10 +137,10 @@ router.patch('/:id', requirePermission('MANAGE_CUSTOMERS'), async (req, res, nex
 router.post('/:id/payments', mutationLimiter, requirePermission('MANAGE_CUSTOMERS'), async (req, res, next) => {
   try {
     const result = await customerService.recordCustomerPayment({
+      ...req.body,
       businessId: req.business._id,
       customerId: req.params.id,
       createdBy: req.user._id,
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {

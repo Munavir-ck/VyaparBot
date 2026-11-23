@@ -4,13 +4,14 @@ import { transactionService } from '../transactions/transaction.service.js';
 import {
   resolveBusinessContext,
   requirePermission,
+  requireModule,
   requireWriteSubscription,
 } from '../../middleware/auth.middleware.js';
 import { mutationLimiter } from '../../middleware/rate-limiter.js';
 
 const router = express.Router();
 
-router.use(resolveBusinessContext, requireWriteSubscription);
+router.use(resolveBusinessContext, requireModule('purchases'), requireWriteSubscription);
 
 // GET /api/suppliers - List active suppliers with balances (optional pagination)
 router.get('/', requirePermission('MANAGE_SUPPLIERS'), async (req, res, next) => {
@@ -134,11 +135,11 @@ router.post('/:id/payments', mutationLimiter, requirePermission('MANAGE_SUPPLIER
       return res.status(404).json({ status: 'fail', message: 'Supplier not found' });
     }
     const result = await transactionService.recordSupplierPayment({
+      ...req.body,
       businessId: req.business._id,
       merchantOrSupplier: supplier.name,
       createdBy: req.user._id,
       source: 'API',
-      ...req.body,
     });
     res.status(201).json({ status: 'success', data: result });
   } catch (err) {

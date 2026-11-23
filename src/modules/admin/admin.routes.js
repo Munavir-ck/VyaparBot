@@ -271,9 +271,9 @@ router.post('/subscriptions/:businessId/grant-pilot', async (req, res, next) => 
 router.post('/subscriptions/:businessId/activate-paid', async (req, res, next) => {
   try {
     const result = await subscriptionService.activatePaidSubscription({
+      ...req.body,
       businessId: req.params.businessId,
       adminUserId: req.user._id,
-      ...req.body,
     });
     res.status(200).json({ status: 'success', data: result });
   } catch (err) {

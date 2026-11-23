@@ -1,6 +1,8 @@
+import crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import app from '../src/app.js';
+import { env } from '../src/config/env.js';
 import { aiService } from '../src/ai/ai.service.js';
 import { CONVERSATION_INTENTS } from '../src/ai/schemas/intent.schema.js';
 import { conversationService } from '../src/modules/conversations/conversation.service.js';
@@ -203,7 +205,17 @@ describe('Phase 4: WhatsApp AI & Multilingual Conversation Integration', () => {
         ],
       };
 
-      await request(app).post('/webhook/whatsapp').send(payload);
+      const secret = process.env.WHATSAPP_APP_SECRET || env.WHATSAPP_APP_SECRET;
+      const headers = secret
+        ? {
+            'x-hub-signature-256': `sha256=${crypto
+              .createHmac('sha256', secret)
+              .update(JSON.stringify(payload))
+              .digest('hex')}`,
+          }
+        : {};
+
+      await request(app).post('/webhook/whatsapp').set(headers).send(payload);
       for (let i = 0; i < 10; i++) {
         await new Promise((r) => setTimeout(r, 100));
         const log = await MessageLog.findOne({ whatsappMessageId: 'wamid.stock_retry_001' });
@@ -211,7 +223,7 @@ describe('Phase 4: WhatsApp AI & Multilingual Conversation Integration', () => {
       }
 
       // Retry exact same webhook
-      await request(app).post('/webhook/whatsapp').send(payload);
+      await request(app).post('/webhook/whatsapp').set(headers).send(payload);
       await new Promise((r) => setTimeout(r, 150));
 
       const { business } = await businessService.resolveBusinessForUser(phone);
